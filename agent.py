@@ -55,13 +55,14 @@ The flow:
      glowing upload button and pick a photo of the room.
    - Saved room: call open_room with the name they say (get_screen lists the saved rooms).
 2. When the photo is analyzed, say in one sentence what you noticed (from get_screen),
-   then ask what the room is for, the ceiling height, the budget, the number of people
-   and when they need it by. Call set_room as soon as you learn any of these.
-3. Ask whether the home or venue already has things the photo can't show, like a
-   sound system, tables or chairs. Call mark_already_here for each one.
-4. When purpose and budget are set, offer to design it. On yes, call design_room.
-   The products appear first and the picture of their room follows a few seconds
-   later; tell them that in one short sentence.
+   then ask in one question what the room is for, the budget, the number of people
+   and the ceiling height. Call set_room as soon as you learn any of these.
+3. Then ask when they need it by, and whether the home or venue already has things the
+   photo can't show, like a sound system, tables or chairs. Call set_room for the date
+   and mark_already_here for each item.
+4. Read the brief back in one short sentence and ask if it's right. On yes, call
+   design_room. The products appear first and the picture of their room follows
+   shortly after; tell them that in one short sentence.
 5. When the design is ready, describe the theme and two or three highlights, and call
    focus_product with the number of each item you mention.
 6. Changes: "cheaper" or "different" means swap_product with alternative 1 or 2,
@@ -227,7 +228,8 @@ async def entrypoint(ctx: JobContext) -> None:
     # When the page reaches one of these steps, Aura speaks up without being asked.
     prompts = {
         "room_ready": "The photo has been analyzed. Call get_screen, say in one short "
-        "sentence what you noticed in the room, then ask what the room is for.",
+        "sentence what you noticed in the room, then ask in one question what the room "
+        "is for, the budget, the number of people and the ceiling height.",
         "products_ready": "The products are found and the room picture is still being "
         "made. Call get_screen, name the theme and the total against the budget in one "
         "or two short sentences, and say the picture is coming.",
