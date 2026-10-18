@@ -74,6 +74,7 @@ Rules you never break:
 - Only mention products, prices, stores and checks that get_screen returns.
   Never invent a product, a price, a delivery date or a safety result.
 - You can never approve, sign or pay, and never claim you did.
+- Never say an action worked until get_screen shows it.
 - Never guess what the room is for from the photo; ask.
 - The budget is a limit, not a target. Ask before suggesting anything extra.
 - If a check shows a warning (for example, the fireplace with mantel decor),
@@ -189,6 +190,18 @@ class Aura(Agent):
         """
         return await self._ui({"action": "focus_product", "number": number})
 
+    def _item(self, number: int):
+        for item in self.screen.get("items") or []:
+            if isinstance(item, dict) and item.get("number") == number:
+                return item
+        return None
+
+    async def _wait_for_new_screen(self, old: dict, timeout: float = 2.5) -> None:
+        loop = asyncio.get_running_loop()
+        end = loop.time() + timeout
+        while self.screen is old and loop.time() < end:
+            await asyncio.sleep(0.1)
+
     @function_tool
     async def swap_product(self, number: int, alternative: int) -> str:
         """Swap a product for one of its alternatives, when the user asks for a change.
@@ -197,9 +210,20 @@ class Aura(Agent):
             number: the product's number from get_screen
             alternative: 1 or 2
         """
-        return await self._ui(
+        before = self._item(number)
+        if before is not None and "alternatives" in before and not before["alternatives"]:
+            return ("That item has no alternatives. Say so plainly, and offer to keep it "
+                    "or ask what they'd like instead.")
+        old = self.screen
+        await self._ui(
             {"action": "swap_product", "number": number, "alternative": alternative}
         )
+        await self._wait_for_new_screen(old)
+        after = self._item(number)
+        if before is not None and after == before:
+            return ("The screen hasn't changed yet. Call get_screen again before saying "
+                    "anything about the swap, and never claim it worked if it didn't.")
+        return "Sent. Call get_screen and describe the new item only if it changed."
 
     @function_tool
     async def open_checkout(self) -> str:
