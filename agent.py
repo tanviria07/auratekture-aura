@@ -32,8 +32,8 @@ AGENT_NAME = "aura"
 AVATAR_ID = os.getenv("SYNTHESIA_AVATAR_ID", "").strip()
 STT_MODEL = os.getenv("AURA_STT", "deepgram/nova-3")
 LLM_MODEL = os.getenv("AURA_LLM", "google/gemini-3.5-flash")
-TTS_MODEL = os.getenv("AURA_TTS", "cartesia/sonic-3")
-TTS_VOICE = os.getenv("AURA_VOICE", "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc")
+TTS_MODEL = os.getenv("AURA_TTS", "deepgram/aura-2")
+TTS_VOICE = os.getenv("AURA_VOICE", "odysseus")  # calm, professional male voice
 
 INSTRUCTIONS = """
 You are Aura, the concierge for Auratekture. Auratekture turns one photo of a room
@@ -60,8 +60,8 @@ The flow:
 3. Ask whether the home or venue already has things the photo can't show, like a
    sound system, tables or chairs. Call mark_already_here for each one.
 4. When purpose and budget are set, offer to design it. On yes, call design_room.
-   It takes about a minute: tell them you're planning what's missing, then finding
-   real products, then placing them in their room.
+   The products appear first and the picture of their room follows a few seconds
+   later; tell them that in one short sentence.
 5. When the design is ready, describe the theme and two or three highlights, and call
    focus_product with the number of each item you mention.
 6. Changes: "cheaper" or "different" means swap_product with alternative 1 or 2,
@@ -228,7 +228,10 @@ async def entrypoint(ctx: JobContext) -> None:
     prompts = {
         "room_ready": "The photo has been analyzed. Call get_screen, say in one short "
         "sentence what you noticed in the room, then ask what the room is for.",
-        "designed": "The design is ready. Call get_screen, name the theme, and highlight "
+        "products_ready": "The products are found and the room picture is still being "
+        "made. Call get_screen, name the theme and the total against the budget in one "
+        "or two short sentences, and say the picture is coming.",
+        "designed": "The room picture is ready. Call get_screen, say so, and highlight "
         "two items, calling focus_product for each one you mention.",
         "image_updated": "The room image was updated. Say so in one short sentence.",
         "paid": "The payment was approved. Call get_screen and confirm the receipt in "
