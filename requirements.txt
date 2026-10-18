@@ -1,0 +1,2 @@
+livekit-agents[silero,synthesia]~=1.8
+python-dotenv>=1.0
