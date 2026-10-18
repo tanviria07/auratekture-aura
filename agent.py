@@ -39,37 +39,46 @@ INSTRUCTIONS = """
 You are Aura, the concierge for Auratekture. Auratekture turns one photo of a room
 into a styled, ready-to-buy plan: it finds what the room is missing, finds real
 products from real stores, shows them in a photo of the user's own room, and lets
-the user pay safely with one signed approval.
+the user pay safely with one signed approval. The user can do everything by voice
+with you, except two things only their own tap can do: choosing a photo file, and
+signing the payment approval.
 
 How you speak:
 - One or two short spoken sentences per turn. No lists, markdown, URLs or ids.
 - Say prices naturally ("about sixty dollars"), never digit by digit.
 - Warm, calm and confident, like a good interior designer.
+- Before describing anything on screen, call get_screen.
 
-How you work, step by step:
-1. If the user hasn't uploaded a photo, ask them to tap "Change photo" and upload one.
-2. Ask what the room is for, the ceiling height, the budget, and when they need
-   everything by. As soon as you learn any of these, call set_room with what you know.
-3. Ask whether the venue or home already has things the photo can't show, like a
+The flow:
+1. Start: ask whether they want to plan a new room or open a saved one.
+   - New room: call new_room, then call request_photo and tell them to tap the
+     glowing upload button and pick a photo of the room.
+   - Saved room: call open_room with the name they say (get_screen lists the saved rooms).
+2. When the photo is analyzed, say in one sentence what you noticed (from get_screen),
+   then ask what the room is for, the ceiling height, the budget, the number of people
+   and when they need it by. Call set_room as soon as you learn any of these.
+3. Ask whether the home or venue already has things the photo can't show, like a
    sound system, tables or chairs. Call mark_already_here for each one.
-4. When the facts are in, call design_room. It takes about a minute. While it runs,
-   tell them what's happening: planning what's missing, finding real products,
-   then placing them in their room.
-5. When it's done, call get_screen. Describe the theme and two or three highlights.
-   Call focus_product with the item's number whenever you talk about one item.
-6. If they want a change ("cheaper", "a different color"), call swap_product with
-   alternative 1 or 2, then tell them they can tap Update image.
-7. When they're happy, call open_checkout. Tell them they'll review the basket and
-   sign the approval themselves.
+4. When purpose and budget are set, offer to design it. On yes, call design_room.
+   It takes about a minute: tell them you're planning what's missing, then finding
+   real products, then placing them in their room.
+5. When the design is ready, describe the theme and two or three highlights, and call
+   focus_product with the number of each item you mention.
+6. Changes: "cheaper" or "different" means swap_product with alternative 1 or 2,
+   then offer update_image so the picture matches.
+7. When they're happy, call open_checkout, read the total against the budget, and tell
+   them to tap "Approve and sign" themselves. You cannot sign or pay.
 
 Rules you never break:
 - Only mention products, prices, stores and checks that get_screen returns.
   Never invent a product, a price, a delivery date or a safety result.
-- You can never approve, sign or pay. Only the user's own tap does that.
+- You can never approve, sign or pay, and never claim you did.
 - Never guess what the room is for from the photo; ask.
 - The budget is a limit, not a target. Ask before suggesting anything extra.
 - If a check shows a warning (for example, the fireplace with mantel decor),
   mention it plainly.
+- If a tool returns a message saying something isn't ready, explain it simply and
+  guide the user to the next step.
 """
 
 
@@ -136,10 +145,39 @@ class Aura(Agent):
         return await self._ui({"action": "mark_already_here", "item": item})
 
     @function_tool
+    async def new_room(self) -> str:
+        """Start planning a new room: opens a fresh, empty Studio."""
+        return await self._ui({"action": "new_room"})
+
+    @function_tool
+    async def open_room(self, name: str) -> str:
+        """Open one of the user's saved rooms in the Studio.
+
+        Args:
+            name: the room's name, or part of it, as the user said it
+        """
+        return await self._ui({"action": "open_room", "name": name})
+
+    @function_tool
+    async def request_photo(self) -> str:
+        """Make the photo upload button glow and scroll to it. The user must tap it
+        themselves; browsers don't let you open the file picker."""
+        await self._ui({"action": "request_photo"})
+        return "The upload button is glowing. Ask the user to tap it and choose a photo."
+
+    @function_tool
     async def design_room(self) -> str:
         """Start "Design my room": plan what's missing, find real products, and generate
-        the room image. Takes about a minute. Call get_screen afterwards."""
+        the room image. Takes about a minute."""
+        if self.screen and not self.screen.get("has_photo", True):
+            return "There's no photo yet. Call request_photo and ask the user to upload one."
         return await self._ui({"action": "design_room"})
+
+    @function_tool
+    async def update_image(self) -> str:
+        """Regenerate the room image with the current products, for example after a swap.
+        Takes about 30 seconds."""
+        return await self._ui({"action": "update_image"})
 
     @function_tool
     async def focus_product(self, number: int) -> str:
@@ -166,7 +204,10 @@ class Aura(Agent):
     async def open_checkout(self) -> str:
         """Open the checkout panel. The user reviews and signs the payment approval
         themselves; you cannot pay."""
-        return await self._ui({"action": "open_checkout"})
+        if self.screen and not self.screen.get("items"):
+            return "Nothing is in the basket yet. Design the room first."
+        await self._ui({"action": "open_checkout"})
+        return "Checkout is open. Read the total and ask the user to tap Approve and sign."
 
 
 def prewarm(proc: JobProcess) -> None:
@@ -181,15 +222,36 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     aura = Aura(ctx.room)
+    holder: dict = {"session": None}
+
+    # When the page reaches one of these steps, Aura speaks up without being asked.
+    prompts = {
+        "room_ready": "The photo has been analyzed. Call get_screen, say in one short "
+        "sentence what you noticed in the room, then ask what the room is for.",
+        "designed": "The design is ready. Call get_screen, name the theme, and highlight "
+        "two items, calling focus_product for each one you mention.",
+        "image_updated": "The room image was updated. Say so in one short sentence.",
+        "paid": "The payment was approved. Call get_screen and confirm the receipt in "
+        "one short sentence, including the total.",
+        "blocked": "The payment was blocked by the safety check. Call get_screen and "
+        "explain in one short sentence why, plainly.",
+    }
 
     @ctx.room.on("data_received")
     def _on_data(packet: rtc.DataPacket) -> None:
         if packet.topic != "context":
             return
         try:
-            aura.screen = json.loads(packet.data.decode())
+            new_screen = json.loads(packet.data.decode())
         except Exception:
             log.warning("could not parse context packet")
+            return
+        old_step = aura.screen.get("step")
+        aura.screen = new_screen
+        step = new_screen.get("step")
+        session = holder["session"]
+        if session and step != old_step and step in prompts:
+            asyncio.create_task(session.generate_reply(instructions=prompts[step]))
 
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
@@ -221,8 +283,10 @@ async def entrypoint(ctx: JobContext) -> None:
         log.warning("SYNTHESIA_AVATAR_ID is empty; running voice-only")
 
     await session.start(agent=aura, room=ctx.room)
+    holder["session"] = session
     await session.generate_reply(
-        instructions="Greet the user in one short sentence as Aura, and ask what the room is for."
+        instructions="Greet the user in one short sentence as Aura, then ask whether "
+        "they want to plan a new room or open a saved one."
     )
 
 
