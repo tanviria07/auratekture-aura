@@ -240,6 +240,9 @@ async def entrypoint(ctx: JobContext) -> None:
         "one short sentence, including the total.",
         "blocked": "The payment was blocked by the safety check. Call get_screen and "
         "explain in one short sentence why, plainly.",
+        "partial": "Not every store could be authorized. Call get_screen, say how many "
+        "stores went through and which failed and why, in one or two short sentences, "
+        "and tell the user they can tap Retry failed stores. You cannot retry for them.",
     }
 
     @ctx.room.on("data_received")
